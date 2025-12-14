@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { supabase } from '$lib/supabaseClient';
+    import { text } from '@sveltejs/kit';
     import { onMount } from 'svelte';
 
 	let tasks: any[] = [];
@@ -128,6 +129,12 @@
 	<div class="min-h-screen flex items-center justify-center bg-gray-100">
 		<div class="bg-white p-6 rounded shadow text-center">
 			<h2 class="text-xl font-bold mb-4">Please login to continue</h2>
+            <input
+                type="email"
+                placeholder="Enter email"
+                bind:value={email}
+            />
+            <button on:click={login}>Login</button>
 			<p class="text-gray-500">Check your email for the magic link</p>
 		</div>
 	</div>
