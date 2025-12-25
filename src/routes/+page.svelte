@@ -1,25 +1,37 @@
 <script lang="ts">
 	import { supabase } from '$lib/supabaseClient';
-    import { text } from '@sveltejs/kit';
     import { onMount } from 'svelte';
 
-	let tasks: any[] = [];
 	let newTask = '';
 	let email = '';
-	let user: any = null;
+	let description = '';
     let dueDate = '';
+	let status = 'Pending';
+	let saving = false;
+	let message = '';
+	let searchQuery = '';
+
+
+	let tasks: any[] = [];
     let filteredTasks: any[] = [];
     let priority = 'Medium';
 	let filter: 'all' | 'completed' | 'pending' | 'high' = 'all';
 
+	let user: any = null;
     let editingId: string | null = null;
 	let editedTitle = '';
+	let editedPriority = 'Medium';
+	let editedDueDate = '';
+	
+
 
     // Check user session
 	onMount(async () => {
 		const { data } = await supabase.auth.getUser();
 		user = data.user;
-		if (user) loadTasks();
+		if (user) {
+			await loadTasks();
+		}
 	});
 
 	// Check login
@@ -44,39 +56,57 @@
 
 	// Load tasks
 	async function loadTasks() {
+		if(!user) return;
+
 		const { data, error } = await supabase
 			.from('tasks')
 			.select('*')
+			.eq('user_id', user.id)
 			.order('created_at', { ascending: false });
 
 		if (!error) tasks = data ?? [];
 	}
 
     // Apply filters
-	$: filteredTasks =
-		filter === 'completed'
-			? tasks.filter(t => t.completed)
-			: filter === 'pending'
-			? tasks.filter(t => !t.completed)
-			: filter === 'high'
-			? tasks.filter(t => t.priority === 'High')
-			: tasks;
+	$: filteredTasks = tasks
+	.filter(t => {
+		if (filter === 'completed') return t.completed;
+		if (filter === 'pending') return !t.completed;
+		if (filter === 'high') return t.priority === 'High';
+		return true;
+	})
+	.filter(t =>
+		t.title.toLowerCase().includes(searchQuery.toLowerCase())
+	);
+
 
 	// Add task
 	async function addTask() {
-		if (!newTask.trim() || !user) return;
+		if (!newTask.trim()) {
+			message = 'Title is required';
+			return;
+		}
+
+		saving = true;
+		message = '';
 
 		await supabase.from('tasks').insert({
 			title: newTask,
-            user_id: user.id,
-            due_date: dueDate || null,
-            priority
+			description,
+			due_date: dueDate || null,
+			status,
+			priority,
+			user_id: user.id
 		});
 
+
 		newTask = '';
-        dueDate = '';
-        priority = 'Medium';
+		description = '';
+		dueDate = '';
+		status = 'Pending';
 		loadTasks();
+
+		saving = false;
 	}
 
 	// Delete task
@@ -87,9 +117,14 @@
 
 	// Toggle completed
 	async function toggleTask(task: any) {
+		const newCompleted = !task.completed;
+
 		await supabase
 			.from('tasks')
-			.update({ completed: !task.completed })
+			.update({
+				completed: newCompleted,
+				status: newCompleted ? 'Completed' : 'Pending'
+			})
 			.eq('id', task.id);
 
 		loadTasks();
@@ -99,6 +134,8 @@
 	function startEdit(task: any) {
 		editingId = task.id;
 		editedTitle = task.title;
+		editedPriority = task.priority;
+		editedDueDate = task.due_date || '';
 	}
 
 	// Cancel editing
@@ -113,14 +150,18 @@
 
 		await supabase
 			.from('tasks')
-			.update({ title: editedTitle })
+			.update({ 
+				title: editedTitle,
+				priority: editedPriority,
+				due_date: editedDueDate || null 
+			})
 			.eq('id', id);
 
 		cancelEdit();
 		loadTasks();
 	}
 
-	loadTasks();
+	
 </script>
 
 <h1><b>Task Manager</b></h1><br>
@@ -152,9 +193,23 @@
 
 			<div class="flex gap-2 mb-4">
 				<input
-					class="flex-1 border rounded px-3 py-2"
+					class="flex-1 border rounded px-3 py-2 h-[42px]"
 					placeholder="Task title"
 					bind:value={newTask} />
+
+				<textarea
+					class="flex-1 border rounded px-3 py-2"
+					placeholder="Task description"
+					bind:value={description}>
+				</textarea>
+
+				<select
+					class="border px-3 py-2 rounded"
+					bind:value={status}>
+					<option>Pending</option>
+					<option>In Progress</option>
+					<option>Completed</option>
+				</select>
 
 				<input
 					type="date"
@@ -183,32 +238,52 @@
 			<button on:click={() => filter = 'pending'}>Pending</button>
 			<button on:click={() => filter = 'high'}>High Priority</button>
 		</div>
-
+		<!-- Search -->
+		<input
+			class="w-full border rounded px-3 py-2 mb-4"
+			type="text"
+			placeholder="Search tasks..."
+			bind:value={searchQuery} />
 
 			<ul class="space-y-3">
-				{#each tasks as task}
-					<li class="flex items-center justify-between bg-gray-50 p-3 rounded">
+				{#each filteredTasks as task}
+					<li class="flex justify-between items-center bg-gray-100 p-2 rounded">
 
 						<div class="flex items-center gap-2">
 							<input
 								type="checkbox"
-								checked={task.completed}
-								on:change={() => toggleTask(task)} />
+								bind:checked={task.completed}
+								
+							/>
 
 							{#if editingId === task.id}
-								<input
-									class="border rounded px-2 py-1"
-									bind:value={editedTitle} />
-								<button
-									class="text-green-600"
-									on:click={() => saveEdit(task.id)}>
-									Save
-								</button>
-								<button
-									class="text-gray-500"
-									on:click={cancelEdit}>
-									Cancel
-								</button>
+								<div class="flex gap-2 items-center">
+									<input
+										class="border rounded px-2 py-1"
+										bind:value={editedTitle} />
+
+									<select
+										class="border rounded px-2 py-1"
+										bind:value={editedPriority}>
+										<option>High</option>
+										<option>Medium</option>
+										<option>Low</option>
+									</select>
+
+									<input
+										type="date"
+										class="border rounded px-2 py-1"
+										bind:value={editedDueDate} />
+
+									<button class="text-green-600" on:click={() => saveEdit(task.id)}>
+										Save
+									</button>
+
+									<button class="text-gray-500" on:click={cancelEdit}>
+										Cancel
+									</button>
+								</div>
+
 							{:else}
 								<span class={task.completed ? 'line-through text-gray-400' : ''}>
 									{task.title}
